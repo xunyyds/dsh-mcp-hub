@@ -81,7 +81,7 @@ Adoption changes nothing about the connection. It is a record, not a reconnect.
 <a id="backup-and-restore"></a>
 ## Backup and restore
 
-The **backup and restore** card exports one JSON containing the server list, every per-tool policy, and the current loader patch:
+**Backup, import and export** is one page, reached from the third entry under *Manage* on the home screen. Its backup section exports one JSON containing the server list, every per-tool policy, and the current loader patch:
 
 ```json
 {
