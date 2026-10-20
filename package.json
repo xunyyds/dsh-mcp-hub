@@ -1,6 +1,6 @@
 {
   "name": "@dsh-external/dsh-mcp-hub",
-  "description": "MCP 多服务器控制台：统一管理 HTTP 与 stdio MCP，连接测试、自动重连、工具启用/审批开关、快捷导入 DSH、按天调用记录",
+  "description": "MCP 多服务器统一控制台",
   "version": "0.2.0",
   "private": true,
   "type": "module",
