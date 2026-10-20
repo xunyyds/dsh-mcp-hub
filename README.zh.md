@@ -135,18 +135,13 @@ dsh plugin --profile desktop add <本仓库路径>
 
 ## 已知限制
 
-- 审批依赖 DSH 的审批通道。没组合应答者时，`ask` 退化为拒绝，这是安全默认；跟随模式下本插件会把「官方审批服务不可用」明确写进拒绝原因，而不是静默放行。
+- 审批依赖 DSH 的审批通道。没组合应答者时，`ask` 退化为拒绝，这是安全默认。
 - 会话级授权保存在内存里，进程重启即失效。这是有意的：授权不该跨会话，也不该跨重启。
-- 官方审批面板的决策词表只有 `allowed-once` / `rejected`，没有第三个按钮的位置；`conversation.composer` 又是选举制（第一个命中的条目独占渲染），插件无法从那里挤进去。所以「记住本会话」是挂在官方面板自己声明的 `conversation.approval.detail` 子 slot 上的一条增量控制条，而不是第三个原生按钮。
-- `ctx.tools.execute()` 是带完整 JSDoc 的公开方法，但不属于 `dsh-tools` 文档化的「Use this package」接口。已针对随包发布的构建验证过；未来大版本可能变动。
-- `mcp-client` 没有暴露注册事件，因此面板按请求实时重算工具清单，而不是缓存连接态。
-- 加载补丁以明文保存 `Authorization: Bearer <token>`。能读 profile 的人就能读到 Token。
+- 「记住本会话」是审批卡片里的一条增量控制条，而不是原生按钮——官方的决策词表只有 `allowed-once` / `rejected`。
 
 ## 开发
 
 事实源：`lib/index.js`（宿主插件、路由、注册表适配层）与 `lib/client.js`（设置面板）。`config.json` 和 `cordis.patch.yml` 是运行时数据，已被 git 忽略。
-
-审批相关测试不依赖 DSH 启动，直接 `node` 运行：
 
 ```sh
 npm test

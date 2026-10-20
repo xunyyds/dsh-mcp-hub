@@ -135,18 +135,13 @@ A backup carries tokens in plain text. It is a credential file, not a shareable 
 
 ## Known limitations
 
-- Approval depends on DSH's approval channel. With no composed answerer an `ask` degrades to a denial, which is the safe default; in follow mode the plugin names "official approval service unavailable" in the denial reason instead of silently allowing.
+- Approval depends on DSH's approval channel. With no composed answerer an `ask` degrades to a denial, which is the safe default.
 - Session grants live in memory and die with the process. That is deliberate: a grant should not cross conversations or restarts.
-- The official approval decision vocabulary is only `allowed-once` / `rejected`, leaving no slot for a third button; and `conversation.composer` is an election (the first matching entry renders alone), so a plugin cannot wedge itself in there. "Remember this session" is therefore an incremental control bar mounted on the official panel's own `conversation.approval.detail` child slot, not a third native button.
-- `ctx.tools.execute()` is a public method with full JSDoc but is not part of the documented "Use this package" surface of `dsh-tools`. It is verified against the shipped build; a future major version could change it.
-- `mcp-client` exposes no registration events, so the panel recomputes tool lists per request instead of caching connection state.
-- The loader patch stores `Authorization: Bearer <token>` in plain text. Anyone who can read the profile can read the token.
+- "Remember this session" is an incremental control bar inside the approval card, not a native button — the official decision vocabulary is only `allowed-once` / `rejected`.
 
 ## Development
 
 Source of truth: `lib/index.js` (host plugin, routes, registry adapter) and `lib/client.js` (settings pane). `config.json` and `cordis.patch.yml` are runtime data and are ignored by git.
-
-The approval tests start no DSH; run them with plain `node`:
 
 ```sh
 npm test
