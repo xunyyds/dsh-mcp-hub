@@ -10,6 +10,9 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "test": "node lib/approval.test.mjs && node lib/approval.routes.test.mjs && node lib/approval.real.test.mjs && node lib/approval.e2e.test.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -36,7 +39,12 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "lib/approval.test.mjs",
+    "lib/approval.routes.test.mjs",
+    "lib/approval.real.test.mjs",
+    "lib/approval.e2e.test.mjs",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ]
 }
