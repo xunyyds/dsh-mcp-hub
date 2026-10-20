@@ -1,8 +1,7 @@
 {
   "name": "@dsh-external/dsh-mcp-hub",
-  "description": "MCP 多服务器统一控制台",
-  "version": "0.2.0",
-  "private": true,
+  "description": "MCP multi-server console for DSH — test, gate, and back up every MCP server from one panel, with approvals that follow DSH.",
+  "version": "1.0.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -13,6 +12,26 @@
   "scripts": {
     "test": "node lib/approval.test.mjs && node lib/approval.routes.test.mjs && node lib/approval.real.test.mjs && node lib/approval.e2e.test.mjs"
   },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "approval",
+    "streamable-http",
+    "stdio"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xunyyds/dsh-mcp-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xunyyds/dsh-mcp-hub/issues"
+  },
+  "homepage": "https://github.com/xunyyds/dsh-mcp-hub#readme",
+  "author": "xunyyds",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -45,6 +64,7 @@
     "lib/approval.e2e.test.mjs",
     "cordis.patch.yml",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "LICENSE"
   ]
 }

@@ -1,39 +1,31 @@
 ---
-description: "MCP multi-server console for DSH — one panel to test, adopt, gate, and back up every MCP server, whether it speaks streamable-http or runs as a local stdio process."
+description: "MCP multi-server console for DSH — test, adopt, gate, and back up every MCP server from one panel, with approvals that follow DSH's own policy."
 kind: "plugin-reference"
 ---
 
-# @dsh-external/dsh-mcp-hub
+# `@dsh-external/dsh-mcp-hub`
 
-[English](README.md) | [中文](README.zh.md)
+English | [中文](README.zh.md)
 
-## Summary
+`dsh-mcp-hub` gives DSH one console for every MCP server. It does not compete with `@deepseek-ai/dsh-mcp-client` for the connection: HTTP servers may be dialled directly, while stdio servers and anything already registered in DSH are managed through the `ctx.tools` registry, so the connection owner never changes. Approvals follow DSH by default — the same `ctx.approval`, the same prompt, the same outcome vocabulary.
 
-`dsh-mcp-hub` gives DSH one console for every MCP server. It does not compete with `@deepseek-ai/dsh-mcp-client` for the connection: HTTP servers may be dialled directly, while stdio servers and anything already registered in DSH are managed through the `ctx.tools` registry, so the connection owner never changes. Per-tool enable and approval policy, whole-plugin backup, and discovery of servers DSH already configured all live in one settings pane.
+## Install
 
-## Table of Contents
+```sh
+dsh plugin --profile desktop add @dsh-external/dsh-mcp-hub
+```
 
-- [Use this plugin](#use-this-plugin)
-- [Approval](#approval)
-- [Understand the implementation](#understand-the-implementation)
-- [Adopt a local server](#adopt-a-local-server)
-- [Backup and restore](#backup-and-restore)
-- [HTTP API](#http-api)
-- [Known limitations](#known-limitations)
-- [Dev note](#dev-note)
+Or from a local checkout:
 
------
-
-<a id="use-this-plugin"></a>
-## Use this plugin
-
-Install into a profile and restart DSH:
-
-```powershell
+```sh
 dsh plugin --profile desktop add <path-to-this-repo>
 ```
 
-The settings pane appears under **MCP Hub**. It manages servers in three parallel ways:
+Restart DSH and the **MCP Hub** settings pane appears. Requires DSH `>= 0.2.1-rc.2`; older runtimes are rejected at load time by `engines.dsh`.
+
+## What it manages
+
+The panel manages servers in three parallel ways:
 
 | Way | Transport | Who connects | Panel can |
 |---|---|---|---|
@@ -66,13 +58,15 @@ The **Approval** page has one master switch and a three-state override per serve
 
 **What "follow" means.** This is not the plugin imitating the official behaviour — it consumes it. The same `ctx.approval`, the same `ask` / `never` folding, the same approval panel, the same `allowed-once` / `rejected` / `cancelled` / `unavailable` outcome vocabulary. The "deployment default policy" and "current permission preset" shown in the panel are read from the official service (`overrideOf()` and `permissionPresets.current()`), not recomputed here.
 
-**One grant covers one server for one conversation.** After approving once in the official prompt, later calls to that server in the same conversation stop asking; a new conversation expires the grant. Grants live on the session, never in config, so opening a fresh conversation can never silently skip a prompt. The Approval page lists current session grants and offers *clear grants*.
+**One grant covers one tool for one conversation.** After approving once in the official prompt, later calls to that tool in the same conversation stop asking; a new conversation expires the grant. Grants live on the session, never in config, so opening a fresh conversation can never silently skip a prompt. The Approval page lists current session grants and offers *clear grants*.
+
+The granularity is the **tool**, not the server: approving `send_msg` does not also release `get_skey` or `kick` on the same server. Per-server memory would let one approval of a read-only tool unlock that server's entire surface, while the prompt the user saw named only that one action.
 
 **What `ask` and `never` mean for MCP.** `ask` raises the official prompt. `never` does not prompt and allows the call — that is how an official preset such as `danger-full-access` expresses "stop asking me". This differs from sandbox escalation: MCP tools have no sandbox, so the "escalation denied" mapping does not apply, and copying it would deny every MCP call for a user who selected Full access.
 
 **Unreadable policy denies.** Without `@deepseek-ai/dsh-user-approval`, or when the official request itself fails, the call fails closed, and both the error text and the DSH log say why. Nothing is silently allowed.
 
-<a id="understand-the-implementation"></a>
+<a id="implementation"></a>
 ## Understand the implementation
 
 ```
@@ -92,14 +86,12 @@ model ──tools──▶ DSH tool pipeline
 - **Debug calls run the real pipeline.** Panel invocations go through `ctx.tools.execute()`, so approval prompts, timeouts, and content projection all apply. They carry a `parent` token, which marks them as nested dispatches and keeps PTC mode from collapsing them. Panel debug has no agent, so the approval gate does not stop it — pressing *run* is itself the explicit grant for that call.
 - **Status is derived, never faked.** `mcp-client` does not export connection state, so the panel counts registered tools under the server's prefix. Zero tools means "not connected", not "connected with nothing".
 
-<a id="adopt-a-local-server"></a>
 ## Adopt a local server
 
 The **local servers** card scans every DSH profile for `mcp-client` entries — in the profile root and in each installed plugin's bundle patch — and lists what it finds. *Adopt* copies that configuration into the panel so the server can be gated and inspected without retyping a URL, a command, or a token.
 
 Adoption changes nothing about the connection. It is a record, not a reconnect.
 
-<a id="backup-and-restore"></a>
 ## Backup and restore
 
 **Backup, import and export** is one page, reached from the third entry under *Manage* on the home screen. Its backup section exports one JSON containing the server list, every per-tool policy, the approval master switch, and the current loader patch:
@@ -124,7 +116,6 @@ Adoption changes nothing about the connection. It is a record, not a reconnect.
 
 A backup carries tokens in plain text. It is a credential file, not a shareable artifact.
 
-<a id="http-api"></a>
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -134,33 +125,40 @@ A backup carries tokens in plain text. It is a credential file, not a shareable 
 | GET | `/mcp-hub/test` | connect and report latency, server info, tool names |
 | GET | `/mcp-hub/tools` | tool list with policy; `source` says `registry` or `dial` |
 | POST | `/mcp-hub/tool-policy` | batch update enable / approval |
-| GET/POST | `/mcp-hub/approval` | read the master switch, per-server modes, and official policy; write the switch / a server mode, or `action: "revoke-grants"` |
+| GET/POST | `/mcp-hub/approval` | read the master switch, per-server modes, and official policy; write the switch / a server mode, `action: "grant"` for one session grant, or `action: "revoke-grants"` |
+| GET | `/mcp-hub/pending` | resolve the pending MCP tool by `callId` |
 | POST | `/mcp-hub/invoke` | debug call through the real pipeline |
 | GET/POST | `/mcp-hub/backup` | export, or restore with `mode` |
 | GET/POST | `/mcp-hub/local` | scan adoptable servers, or adopt one |
 | GET/POST | `/mcp-hub/import` | loader patch status, or write / remove it |
 | GET/DELETE | `/mcp-hub/records` | call history by day |
 
-<a id="known-limitations"></a>
 ## Known limitations
 
 - Approval depends on DSH's approval channel. With no composed answerer an `ask` degrades to a denial, which is the safe default; in follow mode the plugin names "official approval service unavailable" in the denial reason instead of silently allowing.
 - Session grants live in memory and die with the process. That is deliberate: a grant should not cross conversations or restarts.
+- The official approval decision vocabulary is only `allowed-once` / `rejected`, leaving no slot for a third button; and `conversation.composer` is an election (the first matching entry renders alone), so a plugin cannot wedge itself in there. "Remember this session" is therefore an incremental control bar mounted on the official panel's own `conversation.approval.detail` child slot, not a third native button.
 - `ctx.tools.execute()` is a public method with full JSDoc but is not part of the documented "Use this package" surface of `dsh-tools`. It is verified against the shipped build; a future major version could change it.
 - `mcp-client` exposes no registration events, so the panel recomputes tool lists per request instead of caching connection state.
 - The loader patch stores `Authorization: Bearer <token>` in plain text. Anyone who can read the profile can read the token.
 
-## Dev note
+## Development
 
 Source of truth: `lib/index.js` (host plugin, routes, registry adapter) and `lib/client.js` (settings pane). `config.json` and `cordis.patch.yml` are runtime data and are ignored by git.
 
-The approval tests start no DSH; run each file with plain `node`:
+The approval tests start no DSH; run them with plain `node`:
 
-```powershell
-node lib/approval.test.mjs          # decision logic: follow / manual / never / fail closed
-node lib/approval.routes.test.mjs   # HTTP routes and backup compatibility
-node lib/approval.real.test.mjs     # against the real dsh-user-approval overrideOf fold
-node lib/approval.e2e.test.mjs      # against a real ApprovalService, official audit pair
+```sh
+npm test
 ```
 
-`approval.real.test.mjs` and `approval.e2e.test.mjs` load the official packages from the local install (see `DSH_PKGS` at the top of each file); that path needs changing on another machine.
+which is the four files in sequence:
+
+| File | Covers |
+|---|---|
+| `lib/approval.test.mjs` | decision logic: follow / manual / never / fail closed |
+| `lib/approval.routes.test.mjs` | HTTP routes, grant granularity, backup compatibility |
+| `lib/approval.real.test.mjs` | against the real `dsh-user-approval` `overrideOf` fold |
+| `lib/approval.e2e.test.mjs` | against a real `ApprovalService`, official audit pair |
+
+The last two load the official packages from the local install (see `DSH_PKGS` at the top of each file); that path needs changing on another machine.

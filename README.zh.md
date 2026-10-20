@@ -1,39 +1,31 @@
 ---
-description: "DSH 的 MCP 多服务器控制台 —— 一个面板完成测试、接管、门禁与备份；streamable-http 与本地 stdio 进程一视同仁。"
+description: "DSH 的 MCP 多服务器控制台 —— 一个面板完成测试、接管、门禁与备份；审批跟随 DSH 官方策略，streamable-http 与本地 stdio 一视同仁。"
 kind: "plugin-reference"
 ---
 
-# @dsh-external/dsh-mcp-hub
+# `@dsh-external/dsh-mcp-hub`
 
-[English](README.md) | [中文](README.zh.md)
+[English](README.md) | 中文
 
-## 概述
+`dsh-mcp-hub` 给 DSH 一个管理全部 MCP 服务器的控制台。它不与 `@deepseek-ai/dsh-mcp-client` 争抢连接：HTTP 服务器可由插件直连，而 stdio 服务器和任何已注册进 DSH 的服务器都通过 `ctx.tools` 注册表代管，**连接方始终不变**。审批默认跟随 DSH 官方策略——同一个 `ctx.approval`、同一个审批面板、同一份结果词表。
 
-`dsh-mcp-hub` 给 DSH 提供一个管理全部 MCP 服务器的控制台。它不与 `@deepseek-ai/dsh-mcp-client` 争抢连接：HTTP 服务器可以由插件直连，而 stdio 服务器和任何已注册进 DSH 的服务器都通过 `ctx.tools` 注册表代管，**连接方始终不变**。逐工具启用与审批策略、整插件备份、以及自动发现 DSH 已配置的服务器，都集中在同一个设置面板。
+## 安装
 
-## 目录
+```sh
+dsh plugin --profile desktop add @dsh-external/dsh-mcp-hub
+```
 
-- [使用本插件](#使用本插件)
-- [审批](#审批)
-- [实现说明](#实现说明)
-- [接管本地服务器](#接管本地服务器)
-- [备份与恢复](#备份与恢复)
-- [HTTP API](#http-api)
-- [已知限制](#已知限制)
-- [开发说明](#开发说明)
+也可以从仓库本地安装：
 
------
-
-<a id="使用本插件"></a>
-## 使用本插件
-
-安装到某个 profile 并重启 DSH：
-
-```powershell
+```sh
 dsh plugin --profile desktop add <本仓库路径>
 ```
 
-设置页出现 **MCP Hub**。它以三种并列方式管理服务器：
+装完重启 DSH，设置页出现 **MCP Hub**。要求 DSH `>= 0.2.1-rc.2`；更低的版本会在加载时按 `engines.dsh` 拒绝。
+
+## 它管什么
+
+面板以三种并列方式管理服务器：
 
 | 方式 | 传输 | 由谁连接 | 面板能做 |
 |---|---|---|---|
@@ -57,7 +49,7 @@ dsh plugin --profile desktop add <本仓库路径>
 <a id="审批"></a>
 ## 审批
 
-设置页的 **审批** 页有一个总开关，以及每台服务器的三态覆盖。默认是**跟随 DSH**。
+**审批** 页有一个总开关，以及每台服务器的三态覆盖。默认是**跟随 DSH**。
 
 | 层 | 取值 | 作用 |
 |---|---|---|
@@ -66,7 +58,9 @@ dsh plugin --profile desktop add <本仓库路径>
 
 **跟随是什么意思。** 不是本插件模仿官方，而是直接消费官方：同一个 `ctx.approval`，同一套 `ask` / `never` 折叠，同一个审批面板，同一份 `allowed-once` / `rejected` / `cancelled` / `unavailable` 结果词表。面板上显示的「部署默认策略」与「当前权限预设」读的也是官方服务的真实值（`overrideOf()` 与 `permissionPresets.current()`），不是本插件重新推导的。
 
-**一次授权只对同一软件、本次对话有效。** 在官方弹窗里点「允许一次」后，本对话内该服务器的后续调用不再重复询问；换对话即失效。授权记在会话上，不写进配置，因此不会在你下次打开新对话时静默免询问。审批页会列出当前的会话授权，并提供「清空本次授权」。
+**一次授权只对同一工具、本次对话有效。** 在官方弹窗里点「允许一次」后，本对话内该工具的后续调用不再重复询问；换对话即失效。授权记在会话上，不写进配置，因此不会在你下次打开新对话时静默免询问。审批页会列出当前的会话授权，并提供「清空本次授权」。
+
+粒度是**工具**而不是服务器：批准 `send_msg` 不会顺带放行同服务器的 `get_skey` 或 `kick`。按服务器记忆会让一次对只读工具的批准解锁整台服务器的全部能力，而用户在弹窗里看到的只是那一个动作。
 
 **`ask` 与 `never` 在 MCP 上的含义。** `ask` 走官方弹窗；`never` 不弹窗、直接放行——这是官方预设（如 `danger-full-access`）表达「不要提示」的方式。这一点与沙箱升权不同：MCP 工具没有沙箱，「升权被拒」那套映射不适用，照搬会让选了 Full access 的用户每个 MCP 调用都被拒。
 
@@ -92,14 +86,12 @@ dsh plugin --profile desktop add <本仓库路径>
 - **调试调用走真实管线。** 面板调用经由 `ctx.tools.execute()`，审批弹窗、超时、内容投影全部生效。调用携带 `parent` 标记，被识别为子派发，从而不被 PTC 模式折叠。面板调试没有 agent，因此不受审批门禁拦截——点「运行」本身就是对这次调用的明确授权。
 - **状态是推导的，绝不伪造。** `mcp-client` 不导出连接状态，面板统计该服务器前缀下的已注册工具数。零个工具意味着「未连接」，而不是「已连接但没工具」。
 
-<a id="接管本地服务器"></a>
 ## 接管本地服务器
 
 **本地服务器** 卡片扫描每个 DSH profile 里的 `mcp-client` 条目——包括 profile 根目录和各个已安装插件的 bundle 补丁——并列出来源。点「接管到面板」把该配置复制进面板，从而可以设置门禁与查看状态，无需重填 URL、命令或 Token。
 
 接管不改变连接的任何细节。它只是一条记录，不是重连。
 
-<a id="备份与恢复"></a>
 ## 备份与恢复
 
 **备份、导入与导出** 是同一页面，从首页「管理」的第三项进入。其中的备份区导出一个 JSON，包含服务器列表、全部逐工具策略、审批总开关，以及当前加载补丁：
@@ -124,7 +116,6 @@ dsh plugin --profile desktop add <本仓库路径>
 
 备份里的 Token 是明文。它是凭证文件，不是可分享的产物。
 
-<a id="http-api"></a>
 ## HTTP API
 
 | 方法 | 路径 | 用途 |
@@ -134,33 +125,40 @@ dsh plugin --profile desktop add <本仓库路径>
 | GET | `/mcp-hub/test` | 连接并返回延迟、服务器信息、工具名 |
 | GET | `/mcp-hub/tools` | 带策略的工具清单；`source` 标明 `registry` 或 `dial` |
 | POST | `/mcp-hub/tool-policy` | 批量更新启用 / 审批 |
-| GET/POST | `/mcp-hub/approval` | 读审批总开关、每服务器三态与官方策略；写总开关 / 服务器模式，或 `action: "revoke-grants"` 清空会话授权 |
+| GET/POST | `/mcp-hub/approval` | 读审批总开关、每服务器三态与官方策略；写总开关 / 服务器模式，`action: "grant"` 记一条会话授权，或 `action: "revoke-grants"` 清空 |
+| GET | `/mcp-hub/pending` | 按 `callId` 反查待审批的 MCP 工具 |
 | POST | `/mcp-hub/invoke` | 经真实管线的调试调用 |
 | GET/POST | `/mcp-hub/backup` | 导出，或按 `mode` 恢复 |
 | GET/POST | `/mcp-hub/local` | 扫描可接管服务器，或接管其中一个 |
 | GET/POST | `/mcp-hub/import` | 加载补丁状态，或写入 / 移除 |
 | GET/DELETE | `/mcp-hub/records` | 按天查看调用历史 |
 
-<a id="已知限制"></a>
 ## 已知限制
 
 - 审批依赖 DSH 的审批通道。没组合应答者时，`ask` 退化为拒绝，这是安全默认；跟随模式下本插件会把「官方审批服务不可用」明确写进拒绝原因，而不是静默放行。
 - 会话级授权保存在内存里，进程重启即失效。这是有意的：授权不该跨会话，也不该跨重启。
+- 官方审批面板的决策词表只有 `allowed-once` / `rejected`，没有第三个按钮的位置；`conversation.composer` 又是选举制（第一个命中的条目独占渲染），插件无法从那里挤进去。所以「记住本会话」是挂在官方面板自己声明的 `conversation.approval.detail` 子 slot 上的一条增量控制条，而不是第三个原生按钮。
 - `ctx.tools.execute()` 是带完整 JSDoc 的公开方法，但不属于 `dsh-tools` 文档化的「Use this package」接口。已针对随包发布的构建验证过；未来大版本可能变动。
 - `mcp-client` 没有暴露注册事件，因此面板按请求实时重算工具清单，而不是缓存连接态。
 - 加载补丁以明文保存 `Authorization: Bearer <token>`。能读 profile 的人就能读到 Token。
 
-## 开发说明
+## 开发
 
 事实源：`lib/index.js`（宿主插件、路由、注册表适配层）与 `lib/client.js`（设置面板）。`config.json` 和 `cordis.patch.yml` 是运行时数据，已被 git 忽略。
 
 审批相关测试不依赖 DSH 启动，直接 `node` 运行：
 
-```powershell
-node lib/approval.test.mjs          # 判定逻辑：跟随 / manual / never / fail closed
-node lib/approval.routes.test.mjs   # HTTP 路由与备份兼容
-node lib/approval.real.test.mjs     # 对照真实 dsh-user-approval 的 overrideOf 折叠
-node lib/approval.e2e.test.mjs      # 与真实 ApprovalService 对接，验证官方审计对
+```sh
+npm test
 ```
 
-`approval.real.test.mjs` 与 `approval.e2e.test.mjs` 会从本机安装目录加载官方包（路径见文件顶部 `DSH_PKGS`），在别的机器上需要改那一行。
+等价于依次跑四个文件：
+
+| 文件 | 覆盖 |
+|---|---|
+| `lib/approval.test.mjs` | 判定逻辑：跟随 / manual / never / fail closed |
+| `lib/approval.routes.test.mjs` | HTTP 路由、授权粒度、备份兼容 |
+| `lib/approval.real.test.mjs` | 对照真实 `dsh-user-approval` 的 `overrideOf` 折叠 |
+| `lib/approval.e2e.test.mjs` | 与真实 `ApprovalService` 对接，验证官方审计对 |
+
+后两个会从本机安装目录加载官方包（路径见文件顶部 `DSH_PKGS`），在别的机器上需要改那一行。
