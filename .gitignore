@@ -1,0 +1,14 @@
+# 运行时数据与凭证 —— 绝不入库
+config.json
+config.json.bak-*
+cordis.patch.yml
+cordis.patch.yml.bak-*
+
+# 打包产物
+*.tgz
+
+# 依赖与系统垃圾
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
