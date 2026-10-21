@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-mcp-hub",
   "description": "MCP multi-server console for DSH — test, gate, and back up every MCP server from one panel, with approvals that follow DSH.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
