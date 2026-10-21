@@ -58,9 +58,19 @@ The **Approval** page has one master switch and a three-state override per serve
 
 **What "follow" means.** This is not the plugin imitating the official behaviour — it consumes it. The same `ctx.approval`, the same `ask` / `never` folding, the same approval panel, the same `allowed-once` / `rejected` / `cancelled` / `unavailable` outcome vocabulary. The "deployment default policy" and "current permission preset" shown in the panel are read from the official service (`overrideOf()` and `permissionPresets.current()`), not recomputed here.
 
-**One grant covers one tool for one conversation.** After approving once in the official prompt, later calls to that tool in the same conversation stop asking; a new conversation expires the grant. Grants live on the session, never in config, so opening a fresh conversation can never silently skip a prompt. The Approval page lists current session grants and offers *clear grants*.
+**The approval card has three buttons.**
+
+| Button | Effect |
+|---|---|
+| Reject | this call does not run |
+| Allow once | this call only; the next one asks again |
+| Allow for this conversation | runs this call and remembers the tool for the rest of the conversation |
+
+"Allow for this conversation" is a single click: it writes the grant first, then releases the call. A new conversation or a DSH restart expires it — grants live on the session, never in config, so opening a fresh conversation can never silently skip a prompt. The Approval page lists current session grants and offers *clear grants*.
 
 The granularity is the **tool**, not the server: approving `send_msg` does not also release `get_skey` or `kick` on the same server. Per-server memory would let one approval of a read-only tool unlock that server's entire surface, while the prompt the user saw named only that one action.
+
+This card only takes over approvals for the `mcp__` prefix; everything else stays with the official panel. It is a slot registered at runtime, so uninstalling the plugin restores the original UI — no DSH file is modified.
 
 **What `ask` and `never` mean for MCP.** `ask` raises the official prompt. `never` does not prompt and allows the call — that is how an official preset such as `danger-full-access` expresses "stop asking me". This differs from sandbox escalation: MCP tools have no sandbox, so the "escalation denied" mapping does not apply, and copying it would deny every MCP call for a user who selected Full access.
 
