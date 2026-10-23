@@ -143,6 +143,21 @@ dsh plugin --profile desktop add <本仓库路径>
 | GET/POST | `/mcp-hub/import` | 加载补丁状态，或写入 / 移除 |
 | GET/DELETE | `/mcp-hub/records` | 按天查看调用历史 |
 
+**凭证访问边界。** `/mcp-hub/servers` 会返回明文 Token（编辑器要把它填回输入框），
+`/mcp-hub/backup` 与 `/mcp-hub/import` 会返回含 Token / Authorization 的全文。
+这三条只对**本机同源请求**给满内容：
+
+- 请求的 `Host` 必须是回环地址（`127.0.0.1` / `[::1]` / `localhost`）；
+- 带 `Sec-Fetch-Site` 时必须是 `same-origin` / `none`（跨站页面会被拒）；
+- 带 `Origin` 时其主机也必须在回环上。
+
+从局域网地址访问面板仍可正常管理服务器，只是拿不到已保存的凭证
+（`_token` 不返回，`credentialVisible: false`）；`/backup` 与 `/import` 直接 403。
+这样即使 web 服务被改绑到局域网（例如用 remote-web-ui 那类插件），
+端口本身也不再是「谁能读走密钥」的边界。
+`/mcp-hub/status` 是每 12 秒一次的轮询响应，既不返回 Token 也不返回 stdio 的 `env`
+（后者经常装着 API key），两者都只在 `/servers` 上出现。
+
 ## 已知限制
 
 - 审批依赖 DSH 的审批通道。没组合应答者时，`ask` 退化为拒绝，这是安全默认。

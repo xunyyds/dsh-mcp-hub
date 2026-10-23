@@ -143,6 +143,22 @@ A backup carries tokens in plain text. It is a credential file, not a shareable 
 | GET/POST | `/mcp-hub/import` | loader patch status, or write / remove it |
 | GET/DELETE | `/mcp-hub/records` | call history by day |
 
+**Credential access boundary.** `/mcp-hub/servers` returns the plaintext Token (the editor
+needs it to fill the input back in), and `/mcp-hub/backup` / `/mcp-hub/import` return full
+text containing Tokens and Authorization headers. Those three serve full content only to
+**loopback same-origin requests**:
+
+- the request `Host` must be a loopback address (`127.0.0.1` / `[::1]` / `localhost`);
+- when `Sec-Fetch-Site` is present it must be `same-origin` / `none` (cross-site pages are rejected);
+- when `Origin` is present its host must also be loopback.
+
+Reaching the panel over a LAN address still manages servers normally, but yields no stored
+credentials (`_token` is omitted, `credentialVisible: false`); `/backup` and `/import` return
+403. So even if the web server is rebound to a LAN interface (remote-web-ui and similar),
+the port stops being the boundary of who can read the keys.
+`/mcp-hub/status` is the 12-second poll and returns neither Tokens nor stdio `env`
+(which routinely holds API keys); both appear only on `/servers`.
+
 ## Known limitations
 
 - Approval depends on DSH's approval channel. With no composed answerer an `ask` degrades to a denial, which is the safe default.
