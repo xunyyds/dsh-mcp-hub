@@ -46,6 +46,19 @@ The server editor carries a **quick import** panel. Paste any of these and press
 
 Parsing never writes anything. It fills the form and leaves saving to you, so a bad paste cannot silently overwrite a working server.
 
+<a id="tool-catalog"></a>
+## Tool catalog
+
+On the **lazy** tier the server's tool schemas leave the prompt, and the model would otherwise only know "there is a retriever" — not what the library holds. The **tool catalog** fixes that: tool names of lazy servers are kept in the system prompt through the official `ctx.systemPrompt.section()` entry point, so the model can name every tool from turn one and only fetches parameters before calling.
+
+| Catalog setting | Prompt contains | Typical cost (207 tools) |
+|---|---|---|
+| off | nothing about lazy tools | 0 |
+| `names` (default) | full tool names | ≈ 6–7 KB ≈ 1.7k tokens |
+| `summary` | names + first sentence of each description | ≈ 20 KB ≈ 5k tokens |
+
+The catalog lists **lazy servers that are currently live**: `full` schemas are already resident (relisting them is waste), and `off` / disabled / disconnected / failed-to-connect servers would only advertise tools that fail on call — they are dropped automatically and reappear the moment the server reconnects, with no manual step. Truncation over `limit` is announced inside the text, never silent. The **Gateway & catalog** page shows a live preview that is byte-identical to what the model receives — both are rendered by the same function — and every setting takes effect on the next request without a restart.
+
 <a id="approval"></a>
 ## Approval
 
@@ -135,6 +148,7 @@ A backup carries tokens in plain text. It is a credential file, not a shareable 
 | GET | `/mcp-hub/test` | connect and report latency, server info, tool names |
 | GET | `/mcp-hub/tools` | tool list with policy; `source` says `registry` or `dial` |
 | POST | `/mcp-hub/tool-policy` | batch update enable / approval |
+| GET/POST | `/mcp-hub/gateway` | read/write retrieval gateway params and the tool catalog, with a byte-exact preview |
 | GET/POST | `/mcp-hub/approval` | read the master switch, per-server modes, and official policy; write the switch / a server mode, `action: "grant"` for one session grant, or `action: "revoke-grants"` |
 | GET | `/mcp-hub/pending` | resolve the pending MCP tool by `callId` |
 | POST | `/mcp-hub/invoke` | debug call through the real pipeline |
@@ -173,10 +187,17 @@ Source of truth: `lib/index.js` (host plugin, routes, registry adapter) and `lib
 npm test
 ```
 
-which is the four files in sequence:
+which is the eleven files in sequence:
 
 | File | Covers |
 |---|---|
+| `lib/context-budget.test.mjs` | tier normalization, first-sentence summaries, retrieval ranking |
+| `lib/gateway.test.mjs` | prompt filtering, search/fetch, oversized-schema shrink, unload cleanup |
+| `lib/gateway.routes.test.mjs` | `/mcp-hub/gateway` read/write, clamping, roster-in-text |
+| `lib/tool-catalog.test.mjs` | catalog roster correctness, offline servers dropped, honest truncation, byte-exact preview |
+| `lib/budget.e2e.test.mjs` | real `apply()`: disabled / lazy really leave the request |
+| `lib/budget.routes.test.mjs` | `/mcp-hub/budget` read/write, persistence, retention rules |
+| `lib/patch-boundary.test.mjs` | loader patch never touches entries outside the bridge |
 | `lib/approval.test.mjs` | decision logic: follow / manual / never / fail closed |
 | `lib/approval.routes.test.mjs` | HTTP routes, grant granularity, backup compatibility |
 | `lib/approval.real.test.mjs` | against the real `dsh-user-approval` `overrideOf` fold |

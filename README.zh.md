@@ -45,7 +45,7 @@ dsh plugin --profile desktop add <本仓库路径>
 | 档位 | 提示词 | 可否调用 | 说明 |
 |---|---|---|---|
 | 全量 `full` | 全部 schema 每轮都在 | 可以 | 默认值，与未装本插件完全一致 |
-| 按需 `lazy` | 只留一个检索工具 | 可以，需先取回 | schema 从请求里摘掉，模型按需取回 |
+| 按需 `lazy` | 只留一个检索工具 + 可选的工具目录 | 可以，需先取回 | schema 从请求里摘掉，模型按需取回 |
 | 不投放 `off` | 无 | 不可以 | 等价于这台服务器不存在 |
 
 **「按需」怎么还能调用。** 请求里的 `tools` 数组与注册表是两件事：`dsh-tools` 执行时按名字从注册表解析，与提示词里列了什么无关。所以摘掉只影响「模型看见什么」。本插件通过官方 `system-prompt/assemble` 瀑布钩子修改这一轮交给 adapter 的 `tools`，再注册一个 `mcp_hub_tools` 让模型自己取：
@@ -59,6 +59,18 @@ dsh plugin --profile desktop add <本仓库路径>
 取回本身也有上限：单个 schema 超过约 16 KB 会降级成「参数名 + 类型 + 必需项」的浅视图，且**必需参数优先保留、先丢可选参数**——丢必需参数会让调用注定失败。
 
 **检索正文永远带出名单。** 命中与未命中回落的名单位于 tool-result 正文（render 只透传 text），模型一定看得见；`names` 取回的完整 schema 同样在正文里，照抄参数即可调用。
+
+### 工具目录
+
+「按需」档位把 schema 摘掉后，模型只知道「有个检索器」，不知道「库里有什么」——实测会盲搜落空。**工具目录**补上这一环：lazy 服务器的完整工具名通过官方 `ctx.systemPrompt.section()` 常驻系统提示词，模型开局就能说出有哪些工具，调用前再取参数。
+
+| 目录设置 | 提示词里有 | 207 工具的成本 |
+|---|---|---|
+| 关闭 | 无 | 0 |
+| 仅名字 `names`（默认） | 完整工具名 | ≈ 6–7 KB ≈ 1.7k token |
+| 名字 + 摘要 `summary` | 名字 + 每个描述的首句 | ≈ 20 KB ≈ 5k token |
+
+目录**只列 lazy 且当前有可列工具的服务器**：`full` 的 schema 本来就在（重复列是白花钱），`off` / 禁用 / 未连接 / 连接失败的列出来就是「一叫就失败」的诱饵——它们一律自动排除，服务器重新连上后自动回到目录，无需手动操作。超出 `limit` 的部分在文本里如实报出「另有 N 个工具未列出」，绝不静默丢弃。**网关与目录**页的预览与模型实际收到逐字节一致（两边调同一个函数），所有设置保存后下一步请求即生效，无需重启。
 
 ### 网关设置
 
@@ -176,7 +188,7 @@ dsh plugin --profile desktop add <本仓库路径>
 | GET | `/mcp-hub/tools` | 带策略的工具清单；`source` 标明 `registry` 或 `dial` |
 | POST | `/mcp-hub/tool-policy` | 批量更新启用 / 审批 |
 | GET/POST | `/mcp-hub/budget` | 读投放档位与桥接工具名，写单台或全部档位 |
-| GET/POST | `/mcp-hub/gateway` | 读/写检索网关参数（searchLimit / catalogLimit / schemaMaxBytes / loadBatchMax） |
+| GET/POST | `/mcp-hub/gateway` | 读/写检索网关参数与工具目录，预览与注入逐字节一致 |
 | GET/POST | `/mcp-hub/approval` | 读审批总开关、每服务器三态与官方策略；写总开关 / 服务器模式，`action: "grant"` 记一条会话授权，或 `action: "revoke-grants"` 清空 |
 | GET | `/mcp-hub/pending` | 按 `callId` 反查待审批的 MCP 工具 |
 | POST | `/mcp-hub/invoke` | 经真实管线的调试调用 |
@@ -215,13 +227,14 @@ dsh plugin --profile desktop add <本仓库路径>
 npm test
 ```
 
-等价于依次跑十个文件：
+等价于依次跑十一个文件：
 
 | 文件 | 覆盖 |
 |---|---|
 | `lib/context-budget.test.mjs` | 档位规范化、首句摘要、检索排序 |
 | `lib/gateway.test.mjs` | 提示词过滤、检索/取回、超胖 schema 降级、卸载清理 |
 | `lib/gateway.routes.test.mjs` | `/mcp-hub/gateway` 的读写、钳制、检索正文带名单 |
+| `lib/tool-catalog.test.mjs` | 工具目录名单正确性、离线台自动排除、截断如实报出、预览一致性、卸载清理 |
 | `lib/budget.e2e.test.mjs` | 真实 `apply()` 下「禁用/按需真的从请求里消失」 |
 | `lib/budget.routes.test.mjs` | `/mcp-hub/budget` 的读写、落盘与保留规则 |
 | `lib/patch-boundary.test.mjs` | 写入加载补丁不碰桥接区之外的手工条目 |
