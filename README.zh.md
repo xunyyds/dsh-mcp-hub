@@ -35,6 +35,46 @@ dsh plugin --profile desktop add <本仓库路径>
 
 工具名始终是 `mcp__<serverName>__<rawName>`，与原生客户端完全一致，因此会话历史与权限规则在重启后依然有效。
 
+<a id="上下文预算"></a>
+## 上下文预算
+
+工具 schema 是**每轮都在提示词里**的固定成本。一台 207 个工具的服务器实测约 77 万字节（≈21 万 token），而面板里「禁用」它，在过去一个 token 都省不下来——因为禁用只是 `ctx.tools.guard()` 在执行时否决调用，schema 早在注册时就已进入请求。
+
+现在每台服务器有一个**投放档位**，管的是「这份 schema 要不要进提示词」：
+
+| 档位 | 提示词 | 可否调用 | 说明 |
+|---|---|---|---|
+| 全量 `full` | 全部 schema 每轮都在 | 可以 | 默认值，与未装本插件完全一致 |
+| 按需 `lazy` | 只留一个检索工具 | 可以，需先取回 | schema 从请求里摘掉，模型按需取回 |
+| 不投放 `off` | 无 | 不可以 | 等价于这台服务器不存在 |
+
+**「按需」怎么还能调用。** 请求里的 `tools` 数组与注册表是两件事：`dsh-tools` 执行时按名字从注册表解析，与提示词里列了什么无关。所以摘掉只影响「模型看见什么」。本插件通过官方 `system-prompt/assemble` 瀑布钩子修改这一轮交给 adapter 的 `tools`，再注册一个 `mcp_hub_tools` 让模型自己取：
+
+- 检索命中 → 只返回工具名与一句话摘要；
+- **一个都没命中 → 只返回全部工具名**（最小成本，比给全量 schema 便宜两个数量级）；
+- 点名 `names` → 返回那几个工具的完整参数，之后按名字直呼即可。
+
+检索与取回都是同一条对话里的工具调用，**复用当前对话的模型**，不额外发一次 LLM 请求。全程只有 `mcp_hub_tools` 这一个常驻 MCP 工具。
+
+取回本身也有上限：单个 schema 超过约 16 KB 会降级成「参数名 + 类型 + 必需项」的浅视图，且**必需参数优先保留、先丢可选参数**——丢必需参数会让调用注定失败。
+
+**检索正文永远带出名单。** 命中与未命中回落的名单位于 tool-result 正文（render 只透传 text），模型一定看得见；`names` 取回的完整 schema 同样在正文里，照抄参数即可调用。
+
+### 网关设置
+
+**网关设置** 页调整 `mcp_hub_tools` 检索工具的四个参数，保存即生效（网关每次执行现读配置，无需重启）：
+
+| 参数 | 默认 | 范围 | 作用 |
+|---|---|---|---|
+| `searchLimit` | 8 | 1–20 | 单次检索最多返回几条命中 |
+| `catalogLimit` | 200 | 1–500 | 未命中回落时列出的工具名条数 |
+| `schemaMaxBytes` | 16000 | 2000–128000 | 单个 schema 取回的字节预算，超了自动降级 |
+| `loadBatchMax` | 12 | 1–50 | 一次 `names` 最多取回几台工具 |
+
+参数随整插件备份一起导出/还原（`gateway` 字段）；旧备份没有这个字段时，合并保留本机现值、覆盖回到默认值。
+
+**禁用与档位是同一套判定。** 整台禁用、逐工具禁用、`off` 档位三者都进同一个 `blockReason`：既从提示词消失，也拒绝执行、不能被检索取回。提示词过滤与执行否决读同一份配置，不会出现「面板说禁用、模型却还能叫」。
+
 ### 快捷导入
 
 服务器编辑器里有 **快捷导入** 面板。粘贴下列任一格式，点「解析并回填表单」：
@@ -135,6 +175,8 @@ dsh plugin --profile desktop add <本仓库路径>
 | GET | `/mcp-hub/test` | 连接并返回延迟、服务器信息、工具名 |
 | GET | `/mcp-hub/tools` | 带策略的工具清单；`source` 标明 `registry` 或 `dial` |
 | POST | `/mcp-hub/tool-policy` | 批量更新启用 / 审批 |
+| GET/POST | `/mcp-hub/budget` | 读投放档位与桥接工具名，写单台或全部档位 |
+| GET/POST | `/mcp-hub/gateway` | 读/写检索网关参数（searchLimit / catalogLimit / schemaMaxBytes / loadBatchMax） |
 | GET/POST | `/mcp-hub/approval` | 读审批总开关、每服务器三态与官方策略；写总开关 / 服务器模式，`action: "grant"` 记一条会话授权，或 `action: "revoke-grants"` 清空 |
 | GET | `/mcp-hub/pending` | 按 `callId` 反查待审批的 MCP 工具 |
 | POST | `/mcp-hub/invoke` | 经真实管线的调试调用 |
@@ -162,19 +204,27 @@ dsh plugin --profile desktop add <本仓库路径>
 
 - 审批依赖 DSH 的审批通道。没组合应答者时，`ask` 退化为拒绝，这是安全默认。
 - 会话级授权保存在内存里，进程重启即失效。这是有意的：授权不该跨会话，也不该跨重启。
+- **驳回档位是请求级、不是注册级。** `lazy` 摘掉的是这一轮请求里的 schema，工具仍在注册表里（这正是「摘掉还能调用」的原因）。所以模型取回之前看不到参数，取回后才看得到；这是设计，不是疏漏。
+- **检索是词面匹配，不是语义检索。** 工具名里的词（`capture`、`screenshot`）命中率最高；纯概念查询（「那个能改文件的东西」）可能落空——此时会退回全部工具名，模型换词即可。
 
 ## 开发
 
-事实源：`lib/index.js`（宿主插件、路由、注册表适配层）与 `lib/client.js`（设置面板）。`config.json` 和 `cordis.patch.yml` 是运行时数据，已被 git 忽略。
+事实源：`lib/index.js`（宿主插件、路由、注册表适配层）、`lib/client.js`（设置面板）、`lib/context-budget.js`（档位与检索的纯函数）、`lib/gateway.js`（提示词过滤与 `mcp_hub_tools`）。`config.json` 和 `cordis.patch.yml` 是运行时数据，已被 git 忽略。
 
 ```sh
 npm test
 ```
 
-等价于依次跑四个文件：
+等价于依次跑十个文件：
 
 | 文件 | 覆盖 |
 |---|---|
+| `lib/context-budget.test.mjs` | 档位规范化、首句摘要、检索排序 |
+| `lib/gateway.test.mjs` | 提示词过滤、检索/取回、超胖 schema 降级、卸载清理 |
+| `lib/gateway.routes.test.mjs` | `/mcp-hub/gateway` 的读写、钳制、检索正文带名单 |
+| `lib/budget.e2e.test.mjs` | 真实 `apply()` 下「禁用/按需真的从请求里消失」 |
+| `lib/budget.routes.test.mjs` | `/mcp-hub/budget` 的读写、落盘与保留规则 |
+| `lib/patch-boundary.test.mjs` | 写入加载补丁不碰桥接区之外的手工条目 |
 | `lib/approval.test.mjs` | 判定逻辑：跟随 / manual / never / fail closed |
 | `lib/approval.routes.test.mjs` | HTTP 路由、授权粒度、备份兼容 |
 | `lib/approval.real.test.mjs` | 对照真实 `dsh-user-approval` 的 `overrideOf` 折叠 |

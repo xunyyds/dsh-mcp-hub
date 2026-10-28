@@ -12,3 +12,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+
+# 本地调研临时目录
+.scratch/
+
