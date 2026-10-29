@@ -1,7 +1,7 @@
 {
   "name": "@dsh-external/dsh-mcp-hub",
   "description": "MCP multi-server console for DSH — test, gate, budget, and back up every MCP server from one panel, with approvals that follow DSH.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -10,7 +10,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "test": "node --check lib/index.js && node --check lib/client.js && node --check lib/gateway.js && node --check lib/context-budget.js"
+    "test": "node --check lib/index.js && node --check lib/client.js && node --check lib/gateway.js && node --check lib/context-budget.js && node lib/gateway.regression.test.mjs && node lib/gateway.tiers.test.mjs && node lib/tiers.e2e.test.mjs"
   },
   "keywords": [
     "dsh",
@@ -60,6 +60,9 @@
     "lib/client.js",
     "lib/context-budget.js",
     "lib/gateway.js",
+    "lib/gateway.regression.test.mjs",
+    "lib/gateway.tiers.test.mjs",
+    "lib/tiers.e2e.test.mjs",
     "README.md",
     "README.zh.md",
     "LICENSE"
