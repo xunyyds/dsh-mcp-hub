@@ -235,11 +235,14 @@ The card has three buttons:
 
 Granularity is the **tool**, not the server: approving `send_msg` does not release `get_skey` on the same server. Per-server memory would let one approval of a read-only tool unlock that server's entire surface, while the prompt the user saw named only that one action.
 
-**The model is told what happened.** Approval happens in the UI and was previously invisible to the model — it could not distinguish "the user clicked Allow once" from "this tool never asks". Every approved call now ends with a receipt appended to the result body (emitted in Chinese, matching the panel's language):
+**The model is told what happened.** Approval happens in the UI and was previously invisible to the model — it could not distinguish "the user clicked Allow once" from "this tool never asks". Every approved call now ends with a receipt appended to the result body (emitted in Chinese, matching the panel's language), and the receipt matches the button that was actually pressed:
 
 ```
 [审批：本次已由用户允许一次（下次仍会询问）]
+[审批：本次已允许，并记住该工具，本对话内下次不再询问]
 ```
+
+The first is *Allow once*; the second is *Allow for this conversation*. When a grant already exists and no prompt was shown, the receipt is `[审批：本对话内已授权，本次未再次询问]`.
 
 **Unreadable policy denies.** Without `@deepseek-ai/dsh-user-approval`, or when the official request itself fails, the call fails closed, and both the error text and the DSH log say why. Nothing is silently allowed.
 
