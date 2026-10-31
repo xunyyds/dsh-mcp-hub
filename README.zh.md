@@ -33,20 +33,11 @@ dsh-mcp-hub/
 │   ├── gateway.js                      # 上下文预算网关 + mcp_hub_tools 三层检索工具
 │   ├── context-budget.js               # 档位规范化、首句摘要、BM25 检索排序、元工具判据（纯函数）
 │   ├── capability-index.js             # 能力摘要自动生成：分词 → 去通用词 → 特征词 → 渲染 + 哈希缓存
-│   ├── jit-hint.js                     # JIT 触发提示：本轮信号 → 服务器提示，含严格节流
-│   ├── capability-index.test.mjs       # 索引生成、通用词剔除、渲染确定性、坏缓存回落
-│   ├── jit-hint.test.mjs               # 信号提取、节流状态机、解除限制、多会话隔离
-│   ├── retrieval.corpus.mjs            # 离线评测语料：真实工具目录快照 + 100 条任务句式
-│   ├── retrieval.eval.test.mjs         # recall@3 门禁（防检索随工具增长而退化）
-│   ├── integration.capabilities.test.mjs # 三个模块接进 index.js 之后的端到端回归
-│   ├── gateway.tiers.test.mjs          # 三层展开、揭示机制、output schema 一致性守卫
-│   ├── gateway.regression.test.mjs     # 档位/禁用判定顺序、正文渲染、摘要断句
-│   ├── gateway.acceptance2.test.mjs    # 未命中回落成本、离线服务器说明、零参数判据、元工具
-│   └── tiers.e2e.test.mjs              # 真实 apply() 下的请求形状与提示词目录
+│   └── jit-hint.js                     # JIT 触发提示：本轮信号 → 服务器提示，含严格节流
 ├── cordis.patch.yml                    # 加载补丁（运行时数据，已 git 忽略）
 ├── MARKETPLACE.md                      # 插件市场展示文案与用词约定
 ├── README.md / README.zh.md            # 你正在看的这两份
-└── package.json                        # engines.dsh、files 白名单、npm test
+└── package.json                        # engines.dsh、files 白名单
 ```
 
 > `config.json` 与 `cordis.patch.yml` 是**运行时数据**，都在 `.gitignore` 里。
@@ -163,15 +154,6 @@ dsh-mcp-hub/
 - **双向中英桥接**：`崩溃→crash` 与 `crash→崩溃` 都通
 
 改完的实测：`反汇编 so 符号 调试` 的 top3 全落在 rea；`进游戏卡死了拿崩溃栈` 的 top1 是 `mobile_get_crash`。
-
-**这条能力有门禁，不靠感觉。** `lib/retrieval.corpus.mjs` 收了 100 条任务句式（中英各半，带预期 server/tool），`retrieval.eval.test.mjs` 跑离线检索并卡 `recall@3 ≥ 0.8`：
-
-| 指标 | 实测 |
-|---|---|
-| recall@3（全语料） | 0.980（98/100） |
-| recall@3（中文子集） | 0.964（53/55） |
-
-中文子集单独设一条阈值，因为旧实现正是被「英文全对」掩盖的——只卡总分，中文塌方了也看不出来。
 
 ### JIT 触发提示：在正确的当口补一句话
 
@@ -321,35 +303,10 @@ dsh-mcp-hub/
 
 - **连接归属从不转移。** `mcp-client` 拥有每一条 stdio 连接和每个已注册服务器。面板读注册表而非另开连接。
 - **策略分两层。** `tools/pre-execute` 决定允许 / 询问，是可扩展瀑布，后续监听器理论上能翻案；`ctx.tools.guard()` 在其之后运行且不可逆——面板里禁用的工具在这里被否决。
-- **审批不代问。** 跟随模式下不返回 `{kind:'ask'}` 让 `dsh-tools` 代问，而是自己调 `ctx.approval.request()`，再按官方词表映射回 `allow` / `deny` / `cancel`。两个必要理由：不落入 `dsh-tools` 把 `ask` 一律当「沙箱升权」的解释（那会让 `never` 变成拒绝），以及只有拿到 `allowed-once` 才能记住本次对话的授权。审计仍是官方写的 `approval/asked` + `approval/decided` 配对。
+- **审批不代问。** 跟随模式下不返回 `{kind:'ask'}` 让 `dsh-tools` 代问，而是自己调 `ctx.approval.request()`，再按官方词表映射回 `allow` / `deny` / `cancel`。两个必要理由：不落入 `dsh-tools` 把 `ask` 一律当「沙箱升权」的解释（那会让 `never` 变成拒绝），以及只有拿到 `allowed-once` 结果，才能分清「允许一次」与「本对话内允许」并如实回执。审计仍是官方写的 `approval/asked` + `approval/decided` 配对。
 - **调试调用走真实管线。** 面板调用经 `ctx.tools.execute()`，审批、超时、内容投影全部生效。调用携带 `parent` 标记被识别为子派发，从而不被 PTC 模式折叠。面板调试没有 agent，因此不受审批门禁拦截——点「运行」本身就是明确授权。
 - **状态是推导的，绝不伪造。** `mcp-client` 不导出连接状态，面板统计该服务器前缀下的已注册工具数。零个工具意味着「未连接」，而不是「已连接但没工具」。
 - **工具名与原生一致。** 始终是 `mcp__<serverName>__<rawName>`，所以会话历史与权限规则在重启后依然有效。
-
----
-
-## 🧪 测试
-
-```sh
-npm test
-```
-
-依次跑 8 个文件，共 **154 个用例**：
-
-| 文件 | 用例 | 覆盖 |
-|---|---|---|
-| `lib/gateway.tiers.test.mjs` | 23 | 三层展开与成本承诺、取回即揭示、名字自动纠正、output schema 一致性守卫 |
-| `lib/gateway.regression.test.mjs` | 15 | 档位与禁用判定顺序、正文渲染、摘要断句、旧调用方兼容 |
-| `lib/gateway.acceptance2.test.mjs` | 13 | 未命中回落成本、离线服务器说明、零参数判据、元工具判据 |
-| `lib/capability-index.test.mjs` | 45 | 签名稳定性与变更敏感性、通用词剔除不是黑名单、词位判据、渲染确定性、坏缓存回落 |
-| `lib/jit-hint.test.mjs` | 33 | 信号提取（含 `also` 误判钉子）、节流状态机、解除限制、多会话隔离 |
-| `lib/retrieval.eval.test.mjs` | 11 | recall@3 门禁、中文子集、中英桥接双向、能力词权重高于散文 |
-| `lib/integration.capabilities.test.mjs` | 10 | 摘要真的进了提示词、关开关真的消失、提示节流、**提示不自我续命** |
-| `lib/tiers.e2e.test.mjs` | 4 | 真实 `apply()` 下的请求形状与提示词目录稳定性 |
-
-关键守卫做过**变异验证**：把已修的 bug 改回去，对应断言必须立刻变红。这套流程抓出过「28 个测试全绿但线上整条路径崩掉」的情况——因为测试只断言函数返回值，从不拿注册用的 schema 校验它。
-
-检索质量的守卫是另一类：它不锁「某个函数返回什么」，而是锁**100 条真实任务句式的命中率**。新增服务器或改打分权重后这条会自动跑一遍，排序退化立刻暴露——没有它，索引和提示会随着工具增长慢慢漂回「想不起来」的状态。
 
 ---
 

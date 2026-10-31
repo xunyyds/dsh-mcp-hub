@@ -33,20 +33,11 @@ dsh-mcp-hub/
 │   ├── gateway.js                      # context-budget gateway + the mcp_hub_tools three-tier retrieval tool
 │   ├── context-budget.js               # tier normalization, first-sentence summaries, BM25 ranking, meta-tool test (pure)
 │   ├── capability-index.js             # auto-generated capability summaries: tokenize → drop generic → features → render + hash cache
-│   ├── jit-hint.js                     # JIT trigger hints: per-turn signals → server nudge, with hard throttling
-│   ├── capability-index.test.mjs       # index build, generic-word removal, render determinism, broken-cache fallback
-│   ├── jit-hint.test.mjs               # signal extraction, throttle state machine, relief, per-session isolation
-│   ├── retrieval.corpus.mjs            # offline eval corpus: real tool-catalog snapshot + 100 task phrasings
-│   ├── retrieval.eval.test.mjs         # recall@3 gate (stops retrieval decaying as tools grow)
-│   ├── integration.capabilities.test.mjs # end-to-end regression once the three modules are wired into index.js
-│   ├── gateway.tiers.test.mjs          # three tiers, reveal-on-load, output-schema consistency guard
-│   ├── gateway.regression.test.mjs     # tier/disable decision order, body rendering, summary splitting
-│   ├── gateway.acceptance2.test.mjs    # miss-fallback cost, offline servers, zero-arg test, meta tools
-│   └── tiers.e2e.test.mjs              # request shape and prompt catalog under the real apply()
+│   └── jit-hint.js                     # JIT trigger hints: per-turn signals → server nudge, with hard throttling
 ├── cordis.patch.yml                    # loader patch (runtime data, git-ignored)
 ├── MARKETPLACE.md                      # marketplace copy and terminology rules
 ├── README.md / README.zh.md            # the two files you are reading
-└── package.json                        # engines.dsh, files allowlist, npm test
+└── package.json                        # engines.dsh, files allowlist
 ```
 
 > `config.json` and `cordis.patch.yml` are **runtime data** and sit in `.gitignore`.
@@ -163,15 +154,6 @@ With all Chinese dropped, only tools whose descriptions happened to contain a su
 - **Bidirectional bridge**: `崩溃→crash` and `crash→崩溃` both work
 
 Measured afterwards: top-3 for `反汇编 so 符号 调试` all land in rea; top-1 for `进游戏卡死了拿崩溃栈` is `mobile_get_crash`.
-
-**This is gated, not vibes.** `lib/retrieval.corpus.mjs` holds 100 task phrasings (half Chinese, half English, each with expected server/tool) and `retrieval.eval.test.mjs` runs offline retrieval against `recall@3 ≥ 0.8`:
-
-| Metric | Measured |
-|---|---|
-| recall@3 (full corpus) | 0.980 (98/100) |
-| recall@3 (Chinese subset) | 0.964 (53/55) |
-
-The Chinese subset gets its own threshold because the old implementation was hidden behind "English all correct" — a total-only gate cannot see Chinese collapse.
 
 ### JIT trigger hints: one line at the right moment
 
@@ -323,35 +305,10 @@ model ──tools──▶ DSH tool pipeline
 
 - **Connection ownership never moves.** `mcp-client` owns every stdio connection and every registered server. The panel reads the registry rather than opening a second connection.
 - **Policy has two layers.** `tools/pre-execute` decides allow / ask and is an extensible waterfall a later listener could reverse; `ctx.tools.guard()` runs after it and cannot be reversed — a tool disabled in the panel is denied there.
-- **Approval consumes the official seam instead of delegating the ask.** In follow mode the plugin does not return `{kind:'ask'}` and let `dsh-tools` ask; it calls `ctx.approval.request()` itself and maps the official outcome back to `allow` / `deny` / `cancel`. Two reasons make this necessary: it avoids `dsh-tools`' interpretation of `ask` as sandbox escalation (which turns `never` into a denial), and only by holding `allowed-once` can the plugin remember this conversation's grant. The audit pair `approval/asked` + `approval/decided` is still written by the official service.
+- **Approval consumes the official seam instead of delegating the ask.** In follow mode the plugin does not return `{kind:'ask'}` and let `dsh-tools` ask; it calls `ctx.approval.request()` itself and maps the official outcome back to `allow` / `deny` / `cancel`. Two reasons make this necessary: it avoids `dsh-tools`' interpretation of `ask` as sandbox escalation (which turns `never` into a denial), and only by holding the `allowed-once` outcome can the plugin tell *Allow once* from *Allow for this conversation* and report the right receipt. The audit pair `approval/asked` + `approval/decided` is still written by the official service.
 - **Debug calls run the real pipeline.** Panel invocations go through `ctx.tools.execute()`, so approval prompts, timeouts, and content projection all apply. They carry a `parent` token, marking them as nested dispatches so PTC mode does not collapse them. Panel debug has no agent, so the approval gate does not stop it — pressing *run* is itself the explicit grant.
 - **Status is derived, never faked.** `mcp-client` does not export connection state, so the panel counts registered tools under the server's prefix. Zero tools means "not connected", not "connected with nothing".
 - **Tool names stay native.** Always `mcp__<serverName>__<rawName>`, so session history and permission rules survive restarts.
-
----
-
-## 🧪 Tests
-
-```sh
-npm test
-```
-
-Eight files in sequence, **154 cases** total:
-
-| File | Cases | Covers |
-|---|---|---|
-| `lib/gateway.tiers.test.mjs` | 23 | three tiers and the cost promise, reveal-on-load, name correction, output-schema consistency guard |
-| `lib/gateway.regression.test.mjs` | 15 | tier/disable decision order, body rendering, summary splitting, legacy callers |
-| `lib/gateway.acceptance2.test.mjs` | 13 | miss-fallback cost, offline servers, zero-argument test, meta-tool test |
-| `lib/capability-index.test.mjs` | 45 | signature stability and sensitivity, generic-word removal is not a denylist, slot test, render determinism, broken-cache fallback |
-| `lib/jit-hint.test.mjs` | 33 | signal extraction (including the `also` false-positive pin), throttle state machine, relief, per-session isolation |
-| `lib/retrieval.eval.test.mjs` | 11 | recall@3 gate, Chinese subset, bidirectional bridge, capability weight above prose |
-| `lib/integration.capabilities.test.mjs` | 10 | summaries really reach the prompt, switching off really removes them, hint throttling, **hints never self-perpetuate** |
-| `lib/tiers.e2e.test.mjs` | 4 | request shape and prompt-catalog stability under the real `apply()` |
-
-Key guards are **mutation-verified**: reintroducing a fixed bug must turn the matching assertion red immediately. That practice caught a case of "28 tests green while an entire path failed in production" — because the tests only asserted a function's return value and never validated it against the registered output schema.
-
-Retrieval quality is guarded differently: instead of pinning "what a function returns", it pins the **hit rate across 100 real task phrasings**. Adding a server or changing the scoring weights runs it automatically, so ranking decay shows up immediately — without it, the index and the prompt slowly drift back to "I forgot that exists".
 
 ---
 
